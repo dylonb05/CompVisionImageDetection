@@ -17,6 +17,9 @@ else:
 
 device = "cuda"
 
+torch.cuda.empty_cache()
+
+
 classes = ["Dachshund","GreatDane","Poodle","Samoyed","ShibaInu"]
 
 root_dir = "real_data"
@@ -33,7 +36,9 @@ for cls in class_names:
         for path in glob.glob(os.path.join(folder, "*.jpg")):
             img = cv2.imread(path)
             img = cv2.resize(img, (200, 200))
-            img = img.astype(np.float32) / 255
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = img.astype(np.float32) / 255.0
+            img = (img - [0.485, 0.456, 0.406]) / [0.229, 0.224, 0.225]
             images.append(img)
             labels.append(class_to_idx[cls])
 
@@ -80,12 +85,12 @@ class Net(torch.nn.Module):
         # 100x100x100
         self.conv2 = torch.nn.Conv2d(100, 200, 3,padding=1)
         # 50x50x200
-        self.conv3 = torch.nn.Conv2d(200, 400, 3,padding=1)
+        # self.conv3 = torch.nn.Conv2d(200, 400, 3,padding=1)
 
         self.pool = torch.nn.MaxPool2d(2, 2)
         # 400 * 25 * 25 --> 500
-        self.fc1 = torch.nn.Linear(400 * 25 * 25, 500)
-
+        # self.fc1 = torch.nn.Linear(400 * 25 * 25, 500)
+        self.fc1 = torch.nn.Linear(200*50*50, 500)
         # 500 --> 5
         self.fc2 = torch.nn.Linear(500, 5)
 
@@ -95,14 +100,14 @@ class Net(torch.nn.Module):
     def forward(self, x):
         x = self.pool(torch.nn.functional.relu(self.conv1(x)))
         x = self.pool(torch.nn.functional.relu(self.conv2(x)))
-        x = self.pool(torch.nn.functional.relu(self.conv3(x)))
+        # x = self.pool(torch.nn.functional.relu(self.conv3(x)))
 
-        x = x.view(-1, 400*25*25)
+        x = x.view(-1, 200*50*50)
 
         x = self.dropout(x)
         x = torch.nn.functional.relu(self.fc1(x))
         x = self.dropout(x)
-        x = torch.nn.functional.relu(self.fc2(x))
+        x = self.fc2(x)
         return x
 
 
@@ -117,7 +122,8 @@ def train_and_validate(model):
 
     # Training
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    # optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
     # number of epochs to train the model
     n_epochs = 50
@@ -161,7 +167,7 @@ def train_and_validate(model):
             # update average validation loss
             valid_loss += loss.item()*data.size(0)
             # calculate average losses
-        train_loss = train_loss/len(valid_loader.dataset)
+        train_loss = train_loss/len(train_loader.dataset)
         valid_loss = valid_loss/len(valid_loader.dataset)
         # print training/validation statistics
         print('Epoch: {} \tTraining Loss: {:.6f} \tValidation Loss: {:.6f}'.format(
@@ -169,8 +175,8 @@ def train_and_validate(model):
         # save model if validation loss has decreased
         if valid_loss <= valid_loss_min:
             print('Validation loss decreased ({:.6f} --> {:.6f}). Saving model ...'.format(valid_loss_min, valid_loss))
-        torch.save(model.state_dict(), 'model_augmented.pt')
-        valid_loss_min = valid_loss
+            torch.save(model.state_dict(), 'model_augmented.pt')
+            valid_loss_min = valid_loss
 
 
 
@@ -178,7 +184,8 @@ def train_and_validate(model):
 def evaluate_model(model):
     # track test loss
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    # optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
     test_loss = 0.0
     class_correct = list(0. for i in range(5))
@@ -213,7 +220,7 @@ def evaluate_model(model):
     # average test loss
     test_loss = test_loss/len(test_loader.dataset)
     print('Test Loss: {:.6f}\n'.format(test_loss))
-    for i in range(len(target)):
+    for i in range(5):
         if class_total[i] > 0:
             print('Test Accuracy of %5s: %2d%% (%2d/%2d)' % (
                 classes[i], 100 * class_correct[i] / class_total[i],
@@ -226,7 +233,7 @@ def evaluate_model(model):
         np.sum(class_correct), np.sum(class_total)))
 
 
-model.load_state_dict(torch.load('model_augmented.pt'))
+# model.load_state_dict(torch.load('model_augmented.pt'))
 
 train_and_validate(model)
 
